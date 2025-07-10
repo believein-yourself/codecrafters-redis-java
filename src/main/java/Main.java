@@ -17,6 +17,7 @@ public class Main {
         int port = 6379;
         // 全局线程安全存储
         Map<String, String> store = new ConcurrentHashMap<>();
+        Map<String, Long> expiry = new ConcurrentHashMap<>(); // 记录过期时间戳
         try {
             // 创建服务器套接字，绑定到指定端口
             serverSocket = new ServerSocket(port);
@@ -54,9 +55,28 @@ public class Main {
                                     String key = parts[1];
                                     String value = parts[2];
                                     store.put(key, value);
+                                    // 检查是否有PX参数
+                                    if (parts.length > 4 && "PX".equalsIgnoreCase(parts[3])) {
+                                        try {
+                                            long px = Long.parseLong(parts[4]);
+                                            expiry.put(key, System.currentTimeMillis() + px);
+                                        } catch (Exception e) {
+                                            // PX参数无效，忽略
+                                        }
+                                    } else {
+                                        expiry.remove(key); // 没有PX参数则移除过期
+                                    }
                                     outputStream.write("+OK\r\n".getBytes());
                                 } else if ("GET".equals(command) && parts.length > 1) {
                                     String key = parts[1];
+                                    // 检查过期
+                                    if (expiry.containsKey(key)) {
+                                        long exp = expiry.get(key);
+                                        if (System.currentTimeMillis() >= exp) {
+                                            store.remove(key);
+                                            expiry.remove(key);
+                                        }
+                                    }
                                     String value = store.get(key);
                                     if (value != null) {
                                         String resp = "$" + value.length() + "\r\n" + value + "\r\n";
