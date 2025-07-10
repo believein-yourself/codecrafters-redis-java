@@ -3,6 +3,8 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.ServerSocket;
 import java.net.Socket;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.Map;
 
 public class Main {
     public static void main(String[] args) {
@@ -13,6 +15,8 @@ public class Main {
         ServerSocket serverSocket = null;
         // 设置端口号为6379（Redis默认端口）
         int port = 6379;
+        // 全局线程安全存储
+        Map<String, String> store = new ConcurrentHashMap<>();
         try {
             // 创建服务器套接字，绑定到指定端口
             serverSocket = new ServerSocket(port);
@@ -46,6 +50,20 @@ public class Main {
                                     String arg = parts[1];
                                     String resp = "$" + arg.length() + "\r\n" + arg + "\r\n";
                                     outputStream.write(resp.getBytes());
+                                } else if ("SET".equals(command) && parts.length > 2) {
+                                    String key = parts[1];
+                                    String value = parts[2];
+                                    store.put(key, value);
+                                    outputStream.write("+OK\r\n".getBytes());
+                                } else if ("GET".equals(command) && parts.length > 1) {
+                                    String key = parts[1];
+                                    String value = store.get(key);
+                                    if (value != null) {
+                                        String resp = "$" + value.length() + "\r\n" + value + "\r\n";
+                                        outputStream.write(resp.getBytes());
+                                    } else {
+                                        outputStream.write("$-1\r\n".getBytes());
+                                    }
                                 } else {
                                     outputStream.write("-ERR unknown command\r\n".getBytes());
                                 }
