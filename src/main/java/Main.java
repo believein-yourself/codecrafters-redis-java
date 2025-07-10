@@ -29,8 +29,22 @@ public class Main {
                         byte[] buffer = new byte[1024];
                         int bytesRead;
                         while ((bytesRead = inputStream.read(buffer)) != -1) {
-                            // 每收到一次输入就回复一次+PONG\r\n
-                            outputStream.write("+PONG\r\n".getBytes());
+                            String input = new String(buffer, 0, bytesRead);
+                            String[] parts = parseRESP(input);
+                            if (parts.length == 0) {
+                                continue;
+                            }
+                            String command = parts[0].toUpperCase();
+                            if ("PING".equals(command)) {
+                                outputStream.write("+PONG\r\n".getBytes());
+                            } else if ("ECHO".equals(command) && parts.length > 1) {
+                                String arg = parts[1];
+                                String resp = "$" + arg.length() + "\r\n" + arg + "\r\n";
+                                outputStream.write(resp.getBytes());
+                            } else {
+                                // 未知命令，简单返回错误
+                                outputStream.write("-ERR unknown command\r\n".getBytes());
+                            }
                             outputStream.flush();
                         }
                     } catch (IOException e) {
@@ -57,5 +71,26 @@ public class Main {
                 System.out.println("IOException: " + e.getMessage());
             }
         }
+    }
+
+    // 简单RESP协议解析器，只支持*2\r\n$4\r\nECHO\r\n$3\r\nhey\r\n 这种格式
+    private static String[] parseRESP(String input) {
+        if (!input.startsWith("*")) {
+            return new String[0];
+        }
+        String[] lines = input.split("\\r\\n");
+        int idx = 0;
+        if (lines.length < 4) return new String[0];
+        int arrLen = Integer.parseInt(lines[idx++].substring(1));
+        String[] result = new String[arrLen];
+        for (int i = 0; i < arrLen; i++) {
+            if (lines[idx].startsWith("$") && idx + 1 < lines.length) {
+                result[i] = lines[idx + 1];
+                idx += 2;
+            } else {
+                break;
+            }
+        }
+        return result;
     }
 }
