@@ -1,4 +1,5 @@
 import java.io.IOException;
+import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.ServerSocket;
 import java.net.Socket;
@@ -22,8 +23,17 @@ public class Main {
             clientSocket = serverSocket.accept();
             // 获取客户端的输出流
             OutputStream outputStream = clientSocket.getOutputStream();
-            // 向客户端发送Redis协议格式的PONG响应
-            outputStream.write("+PONG\r\n".getBytes());
+            // 获取客户端的输入流，用于读取命令
+            InputStream inputStream = clientSocket.getInputStream();
+            // 循环读取客户端发送的命令并响应
+            byte[] buffer = new byte[1024]; // 缓冲区
+            int bytesRead;
+            while ((bytesRead = inputStream.read(buffer)) != -1) {
+                // 只要收到数据就回复+PONG\r\n
+                // 实际上这里不解析命令，直接每次收到数据都回复PONG
+                outputStream.write("+PONG\r\n".getBytes());
+                outputStream.flush(); // 立即发送
+            }
         } catch (IOException e) {
             // 捕获并打印异常信息
             System.out.println("IOException: " + e.getMessage());
