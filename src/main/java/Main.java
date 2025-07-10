@@ -28,24 +28,29 @@ public class Main {
                         InputStream inputStream = client.getInputStream();
                         byte[] buffer = new byte[1024];
                         int bytesRead;
+                        StringBuilder bufferString = new StringBuilder();
                         while ((bytesRead = inputStream.read(buffer)) != -1) {
-                            String input = new String(buffer, 0, bytesRead);
-                            String[] parts = parseRESP(input);
-                            if (parts.length == 0) {
-                                continue;
+                            bufferString.append(new String(buffer, 0, bytesRead));
+                            while (true) {
+                                ParseResult result = parseRESP(bufferString.toString());
+                                if (result == null) break; // 没有完整命令，等待更多数据
+                                String[] parts = result.parts;
+                                bufferString.delete(0, result.consumedLen); // 移除已处理部分
+                                if (parts.length == 0) {
+                                    continue;
+                                }
+                                String command = parts[0].toUpperCase();
+                                if ("PING".equals(command)) {
+                                    outputStream.write("+PONG\r\n".getBytes());
+                                } else if ("ECHO".equals(command) && parts.length > 1) {
+                                    String arg = parts[1];
+                                    String resp = "$" + arg.length() + "\r\n" + arg + "\r\n";
+                                    outputStream.write(resp.getBytes());
+                                } else {
+                                    outputStream.write("-ERR unknown command\r\n".getBytes());
+                                }
+                                outputStream.flush();
                             }
-                            String command = parts[0].toUpperCase();
-                            if ("PING".equals(command)) {
-                                outputStream.write("+PONG\r\n".getBytes());
-                            } else if ("ECHO".equals(command) && parts.length > 1) {
-                                String arg = parts[1];
-                                String resp = "$" + arg.length() + "\r\n" + arg + "\r\n";
-                                outputStream.write(resp.getBytes());
-                            } else {
-                                // 未知命令，简单返回错误
-                                outputStream.write("-ERR unknown command\r\n".getBytes());
-                            }
-                            outputStream.flush();
                         }
                     } catch (IOException e) {
                         // 可以忽略客户端异常断开等情况
@@ -73,24 +78,38 @@ public class Main {
         }
     }
 
-    // 简单RESP协议解析器，只支持*2\r\n$4\r\nECHO\r\n$3\r\nhey\r\n 这种格式
-    private static String[] parseRESP(String input) {
-        if (!input.startsWith("*")) {
-            return new String[0];
+    // 解析结果结构体
+    private static class ParseResult {
+        String[] parts;
+        int consumedLen;
+        ParseResult(String[] parts, int consumedLen) {
+            this.parts = parts;
+            this.consumedLen = consumedLen;
         }
-        String[] lines = input.split("\\r\\n");
-        int idx = 0;
-        if (lines.length < 4) return new String[0];
-        int arrLen = Integer.parseInt(lines[idx++].substring(1));
+    }
+    // 支持任意参数数量的RESP协议解析器，返回null表示数据不完整
+    private static ParseResult parseRESP(String input) {
+        if (!input.startsWith("*")) {
+            return null;
+        }
+        int pos = 0;
+        int rn = input.indexOf("\r\n", pos);
+        if (rn == -1) return null;
+        int arrLen = Integer.parseInt(input.substring(1, rn));
+        pos = rn + 2;
         String[] result = new String[arrLen];
         for (int i = 0; i < arrLen; i++) {
-            if (lines[idx].startsWith("$") && idx + 1 < lines.length) {
-                result[i] = lines[idx + 1];
-                idx += 2;
-            } else {
-                break;
-            }
+            if (pos >= input.length() || input.charAt(pos) != '$') return null;
+            int rnLen = input.indexOf("\r\n", pos);
+            if (rnLen == -1) return null;
+            int strLen = Integer.parseInt(input.substring(pos + 1, rnLen));
+            pos = rnLen + 2;
+            if (pos + strLen > input.length()) return null;
+            result[i] = input.substring(pos, pos + strLen);
+            pos += strLen;
+            if (pos + 2 > input.length() || !input.substring(pos, pos + 2).equals("\r\n")) return null;
+            pos += 2;
         }
-        return result;
+        return new ParseResult(result, pos);
     }
 }
